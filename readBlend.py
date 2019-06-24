@@ -8,11 +8,13 @@ import sys
 from BinFileUtils import getInt, getString, check4, padUp4
 
 pointerSize = 0
+headerList = []
 
 def main():
     with open('startup.blend', 'rb') as f:
         verifyFileHeader(f)
-        dumpBlockHeaders(f)
+        global headerList
+        saveBlockHeaders(f, headerList)
 
 def verifyFileHeader(f):
     # Read 12-byte header
@@ -75,21 +77,47 @@ def getBlockHeader(f):
     return {'blockCode' : code, 'blockLength' : length, 'oldPointer' : oldPointer,
             'structCode' : structCode, 'numberOfStructs' : numStructs}
 
-def dumpBlockHeaders(f):
-    code = ''
+"""
+Saves block headers in a list. Each block header is a dictionary with these keys:
+    blockCode       a string of 2 or 4 characters indicating the block type
+    blockLength     length in bytes of the data following the block header
+    oldPointer      memory address of block when it was saved
+    structCode      index into the array of structure definitions read from the
+                    structure DNA. The data in the block conforms to this structure.
+    numberOfStructs the data consists of this number of consecutive structs
+    filePos         not in the .blend file; generated during reading
+    newPointer      not in the .blend file; this is the oldPointer minus the
+                    minimum oldPointer value found in the file
+"""
+def saveBlockHeaders(f, blist):
+    blist = []
     endCode = 'ENDB'
-    while code != endCode:
+    minAddress = sys.maxsize # keep track of minimum pointer address
+    filePos = 0
+    while True:
         data = getBlockHeader(f)
         if data == None: break
-        code = data['blockCode']
-        print(f'code = {code}')
+        if data['blockCode'] == endCode: break
+        if data['oldPointer'] < minAddress:
+            minAddress = data['oldPointer']
+        data['filePos'] = filePos
+        filePos = f.tell() + data["blockLength"]
+        f.seek(filePos)
+
+        blist.append(data)
+    print(f'Found {len(blist)} header blocks (not including end block)')
+    # calculate the new pointer values
+    for h in blist:
+        h['newPointer'] = h['oldPointer'] - minAddress
+        dumpBlockHeader(h)
+
+def dumpBlockHeader(data):
+        print(f'code = {data["blockCode"]}')
         print(f'length = {data["blockLength"]}')
         print(f'old pointer = {data["oldPointer"]:016x}')
+        print(f'new pointer = {data["newPointer"]:016x}')
         print(f'struct code = {data["structCode"]}')
         print(f'number of structs = {data["numberOfStructs"]}')
         print()
-        f.seek(f.tell() + data["blockLength"])
-        
-    
 
 if __name__ == '__main__': main()
