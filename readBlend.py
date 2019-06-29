@@ -8,12 +8,19 @@ import sys
 from BinFileUtils import getInt, getString, check4, padUp4
 from readDNA import BlenderDNA
 from blockCodes import FileBlockCodes
+from PIL import Image
 
 def main():
     with open('startup.blend', 'rb') as f:
         bf = BlenderFile(f)
         bf.processFile()
+        bhs = bf.getBlockHeaders()
         print(bf.getFileHeader())
+        print(f'Found {len(bhs)} header blocks (not including end block)')
+        for h in bhs:
+            bf.dumpBlockHeader(h)
+        timg = bf.getThumbnail()
+        timg.save('startup.png')
 
 class BlenderFile:
     def __init__(self, infile):
@@ -22,10 +29,11 @@ class BlenderFile:
         self.__blockHeaders = []
         self.__headersByType = {}
         self.__headersByAddress = {}
+        self.__thumbnailImage = None
     
     def processFile(self):
         self.__verifyFileHeader(self.__f)
-        self.__saveBlockHeaders(self.__f, self.__blockHeaders)
+        self.__saveBlockHeaders(self.__f)
         
     def getFileHeader(self):
         return self.__fileHeader
@@ -38,6 +46,9 @@ class BlenderFile:
     
     def getHeadersByAddress(self):
         return self.__headersByAddress
+    
+    def getThumbnail(self):
+        return self.__thumbnailImage
 
     def __verifyFileHeader(self,f):
         # Read 12-byte header
@@ -113,25 +124,20 @@ class BlenderFile:
         numberOfStructs the data consists of this number of consecutive structs
         filePos         not in the .blend file; generated during reading
     """
-    def __saveBlockHeaders(self, f, blist):
-        blist = []
+    def __saveBlockHeaders(self, f):
         endCode = 'ENDB'
-        filePos = 0
+        filePos = f.tell()
         while True:
             data = self.__getBlockHeader(f)
             if data == None: break
             if data['blockCode'] == endCode: break
-            #############
-            # TEMPORARY #
-            #############
+            blockData = f.read(data['blockLength'])
             if data['blockCode'] == 'TEST':
-                curPos = f.tell()
-                imgBlockData = f.read(data['blockLength'])
-                self.__saveImageAsPNG(imgBlockData)
-                f.seek(curPos)
-            #################
-            # END TEMPORARY #
-            #################
+                # The block data is a thumbnail image in RGBA format
+                # Data starts with two integers, the width and height of the image
+                width = getInt(blockData[0:4])
+                height = getInt(blockData[4:8])
+                self.__thumbnailImage = Image.frombytes('RGBA',(width, height),blockData[8:])
             data['filePos'] = filePos
             # populate dictionaries
             code = data['blockCode']
@@ -139,15 +145,10 @@ class BlenderFile:
                 self.__headersByType[code] = []
             self.__headersByType[code].append(data)
             self.__headersByAddress[data['oldPointer']] = data
-            filePos = f.tell() + data["blockLength"]
-            f.seek(filePos)
+            self.__blockHeaders.append(data)
+            filePos = f.tell()
     
-            blist.append(data)
-        #print(f'Found {len(blist)} header blocks (not including end block)')
-        for h in blist:
-            self.__dumpBlockHeader(h)
-    
-    def __dumpBlockHeader(self, data):
+    def dumpBlockHeader(self, data):
             code = data["blockCode"]
             fbcs = FileBlockCodes.fileBlockCodes
             print(f'code = {code} {fbcs[code]}')
@@ -156,13 +157,5 @@ class BlenderFile:
             print(f'struct code = {data["structCode"]}')
             print(f'number of structs = {data["numberOfStructs"]}')
             print()
-    
-    def __saveImageAsPNG(self, data):
-        # Data starts with two integers, the width and height of the image
-        width = getInt(data[0:4])
-        height = getInt(data[4:8])
-        from PIL import Image
-        pngImg = Image.frombytes('RGBA',(width, height),data[8:])
-        pngImg.save('thumbnail.png')
 
 if __name__ == '__main__': main()
