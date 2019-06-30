@@ -20,7 +20,8 @@ def main():
         for h in bhs:
             bf.dumpBlockHeader(h)
         timg = bf.getThumbnail()
-        timg.save('startup.png')
+        if timg:
+            timg.save('startup.png')
 
 class BlenderFile:
     def __init__(self, infile):
