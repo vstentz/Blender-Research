@@ -49,7 +49,17 @@ class BlenderFile:
     
     def getThumbnail(self):
         return self.__thumbnailImage
-
+    
+    """
+    This function checks the .blend file header for proper formatting snd
+    saves its data in a dictionary.
+    
+    Dictionary key      value
+    --------------      -----
+    pointerSize         4 or 8 (bytes)
+    byteOrder           "little" or "big" (-endian)
+    version             Blender version as integer, e.g. 280 = 2.80
+    """
     def __verifyFileHeader(self,f):
         # Read 12-byte header
         header = f.read(12).decode()
@@ -122,25 +132,24 @@ class BlenderFile:
         structCode      index into the array of structure definitions read from the
                         structure DNA. The data in the block conforms to this structure.
         numberOfStructs the data consists of this number of consecutive structs
-        filePos         not in the .blend file; generated during reading
+        filePos         file offset to block's data
     """
     def __saveBlockHeaders(self, f):
-        endCode = 'ENDB'
-        filePos = f.tell()
         while True:
             data = self.__getBlockHeader(f)
             if data == None: break
-            if data['blockCode'] == endCode: break
-            blockData = f.read(data['blockLength'])
-            if data['blockCode'] == 'TEST':
-                # The block data is a thumbnail image in RGBA format
-                # Data starts with two integers, the width and height of the image
-                width = getInt(blockData[0:4])
-                height = getInt(blockData[4:8])
-                self.__thumbnailImage = Image.frombytes('RGBA',(width, height),blockData[8:])
+            code = data["blockCode"]
+            if code == 'ENDB': break
+            filePos = f.tell()
             data['filePos'] = filePos
+            if code == 'DNA1':
+                # parse and save the structure DNA
+                self.__dna = BlenderDNA(f)
+                self.__dna.processDNA()
+            else:
+                # skip over the block data
+                f.seek(filePos + data['blockLength'])
             # populate dictionaries
-            code = data['blockCode']
             if code not in self.__headersByType:
                 self.__headersByType[code] = []
             self.__headersByType[code].append(data)
