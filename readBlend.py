@@ -10,8 +10,9 @@ from readDNA import BlenderDNA
 from blockCodes import FileBlockCodes
 from PIL import Image
 
-def main():
-    with open('startup.blend', 'rb') as f:
+def main(bfile = 'startup.blend'):
+    print(f'input file name = {bfile}')
+    with open(bfile, 'rb') as f:
         bf = BlenderFile(f)
         bf.processFile()
         bhs = bf.getBlockHeaders()
@@ -168,4 +169,4 @@ class BlenderFile:
             print(f'number of structs = {data["numberOfStructs"]}')
             print()
 
-if __name__ == '__main__': main()
+if __name__ == '__main__': main(sys.argv[1])
