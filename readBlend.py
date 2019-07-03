@@ -9,9 +9,9 @@ from BinFileUtils import getInt, getString, check4, padUp4
 from readDNA import BlenderDNA
 from blockCodes import FileBlockCodes
 from PIL import Image
+from os.path import basename, splitext
 
 def main(bfile = 'startup.blend'):
-    print(f'input file name = {bfile}')
     with open(bfile, 'rb') as f:
         bf = BlenderFile(f)
         bf.processFile()
@@ -22,7 +22,19 @@ def main(bfile = 'startup.blend'):
             bf.dumpBlockHeader(h)
         timg = bf.getThumbnail()
         if timg:
-            timg.save('startup.png')
+            (fname, fext) = splitext(basename(bfile))
+            timg.save(fname + '.png')
+        rds = bf.getRenderData()
+        print("Render data:")
+        for rd in rds:
+            print(f'\tstart frame {rd.startFrame} end frame {rd.endFrame} scene "{rd.sceneName}"')
+
+class RenderData:
+    """
+    Container class for render data. Render data consists of a
+    scene name string, a start frame number, and an end frame number.
+    """
+    pass
 
 class BlenderFile:
     def __init__(self, infile):
@@ -32,10 +44,12 @@ class BlenderFile:
         self.__headersByType = {}
         self.__headersByAddress = {}
         self.__thumbnailImage = None
+        self.__renderData = []
     
     def processFile(self):
         self.__verifyFileHeader(self.__f)
         self.__saveBlockHeaders(self.__f)
+        self.__processBlockData(self.__f)
         
     def getFileHeader(self):
         return self.__fileHeader
@@ -51,6 +65,9 @@ class BlenderFile:
     
     def getThumbnail(self):
         return self.__thumbnailImage
+    
+    def getRenderData(self):
+        return self.__renderData
     
     def __verifyFileHeader(self,f):
         """
@@ -102,6 +119,16 @@ class BlenderFile:
         self.__fileHeader['version'] = version
 
     def __getBlockHeader(self, f):
+        """
+        Parses block headers and saves data to a dictionary. Dictionary keys:
+            blockCode       a string of 2 or 4 characters indicating the block type
+            blockLength     length in bytes of the data following the block header
+            oldPointer      memory address of block when it was saved
+            structCode      index into the array of structure definitions read from the
+                            structure DNA. The data in the block conforms to this structure.
+            numberOfStructs the data consists of this number of consecutive structs
+            filePos         file offset to block's data
+        """
         pointerSize = self.__fileHeader['pointerSize']
         # first 4 bytes are a block type code
         raw = f.read(4)
@@ -128,26 +155,22 @@ class BlenderFile:
 
     def __saveBlockHeaders(self, f):
         """
-        Saves block headers in a list. Each block header is a dictionary with these keys:
-            blockCode       a string of 2 or 4 characters indicating the block type
-            blockLength     length in bytes of the data following the block header
-            oldPointer      memory address of block when it was saved
-            structCode      index into the array of structure definitions read from the
-                            structure DNA. The data in the block conforms to this structure.
-            numberOfStructs the data consists of this number of consecutive structs
-            filePos         file offset to block's data
+        Saves the block headers in a list. The SDNA data is processed in this
+        loop, but the data in the other blocks is skipped over.
         """
         while True:
             data = self.__getBlockHeader(f)
             if data == None: break
             code = data["blockCode"]
             if code == 'ENDB': break
+            data['processed'] = False # Data not yet parsed
             filePos = f.tell()
             data['filePos'] = filePos
             if code == 'DNA1':
                 # parse and save the structure DNA
                 self.__dna = BlenderDNA(f)
                 self.__dna.processDNA()
+                data['processed'] = True
             else:
                 # skip over the block data
                 f.seek(filePos + data['blockLength'])
@@ -158,6 +181,36 @@ class BlenderFile:
             self.__headersByAddress[data['oldPointer']] = data
             self.__blockHeaders.append(data)
             filePos = f.tell()
+            
+    def __processBlockData(self, f):
+        """
+        Iterates over the list of block headers and parses the data for each block.
+        """
+        for block in self.__blockHeaders:
+            if block['processed']:
+                continue # already processed
+            code = block['blockCode']
+            dataLength = block['blockLength']
+            f.seek(block['filePos'])
+            if code == 'REND':
+                # process the abbreviated render data
+                for idx in range(0, block['numberOfStructs']):
+                    sframe = getInt(f.read(4)) # start frame number
+                    eframe = getInt(f.read(4)) # end frame number
+                    scene = (f.read(64)).decode().rstrip('\0')
+                    rd = RenderData()
+                    rd.startFrame = sframe
+                    rd.endFrame = eframe
+                    rd.sceneName = scene
+                    self.__renderData.append(rd)
+                block['processed'] = True
+            elif code == 'TEST':
+                # The block data is a thumbnail image in RGBA format
+                # Data starts with two integers, the width and height of the image
+                width = getInt(f.read(4))
+                height = getInt(f.read(4))
+                self.__thumbnailImage = Image.frombytes('RGBA',(width, height),f.read(dataLength - 8))
+                block['processed'] = True
     
     def dumpBlockHeader(self, data):
             code = data["blockCode"]
@@ -169,4 +222,8 @@ class BlenderFile:
             print(f'number of structs = {data["numberOfStructs"]}')
             print()
 
-if __name__ == '__main__': main(sys.argv[1])
+if __name__ == '__main__':
+    if len(sys.argv) >= 2:
+        main(sys.argv[1])
+    else:
+        main()
