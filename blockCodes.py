@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
-"""
-Definitions of codes found in Blender file block headers
-"""
 class FileBlockCodes:
+    """
+    Definitions of codes found in Blender file block headers
+    """
     fileBlockCodes = {
         'SC' : 'Scene',
         'LI' :  'Library',
