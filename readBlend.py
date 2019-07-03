@@ -51,17 +51,17 @@ class BlenderFile:
     def getThumbnail(self):
         return self.__thumbnailImage
     
-    """
-    This function checks the .blend file header for proper formatting snd
-    saves its data in a dictionary.
-    
-    Dictionary key      value
-    --------------      -----
-    pointerSize         4 or 8 (bytes)
-    byteOrder           "little" or "big" (-endian)
-    version             Blender version as integer, e.g. 280 = 2.80
-    """
     def __verifyFileHeader(self,f):
+        """
+        This function checks the .blend file header for proper formatting snd
+        saves its data in a dictionary.
+        
+        Dictionary key      value
+        --------------      -----
+        pointerSize         4 or 8 (bytes)
+        byteOrder           "little" or "big" (-endian)
+        version             Blender version as integer, e.g. 280 = 2.80
+        """
         # Read 12-byte header
         header = f.read(12).decode()
         magic = header[:7]
@@ -125,17 +125,17 @@ class BlenderFile:
         return {'blockCode' : code, 'blockLength' : length, 'oldPointer' : oldPointer,
             'structCode' : structCode, 'numberOfStructs' : numStructs}
 
-    """
-    Saves block headers in a list. Each block header is a dictionary with these keys:
-        blockCode       a string of 2 or 4 characters indicating the block type
-        blockLength     length in bytes of the data following the block header
-        oldPointer      memory address of block when it was saved
-        structCode      index into the array of structure definitions read from the
-                        structure DNA. The data in the block conforms to this structure.
-        numberOfStructs the data consists of this number of consecutive structs
-        filePos         file offset to block's data
-    """
     def __saveBlockHeaders(self, f):
+        """
+        Saves block headers in a list. Each block header is a dictionary with these keys:
+            blockCode       a string of 2 or 4 characters indicating the block type
+            blockLength     length in bytes of the data following the block header
+            oldPointer      memory address of block when it was saved
+            structCode      index into the array of structure definitions read from the
+                            structure DNA. The data in the block conforms to this structure.
+            numberOfStructs the data consists of this number of consecutive structs
+            filePos         file offset to block's data
+        """
         while True:
             data = self.__getBlockHeader(f)
             if data == None: break
