@@ -24,8 +24,11 @@ def main():
             d.processDNA()
             names = d.getNames()
             types = d.getTypes()
-            for s in d.getStructs():
-                d.dumpStruct(names, types, s)
+            structs = d.getStructs()
+            print(f'Found {len(names)} names, {len(types)} types, {len(structs)} structs')
+            for idx in range(0, len(structs)):
+                print(f'Struct number {idx}')
+                d.dumpStruct(names, types, structs[idx])
             
 class BlenderDNA:
     def __init__(self, infile):
@@ -33,6 +36,7 @@ class BlenderDNA:
         self.__allTypes = []
         self.__allTypeLengths = []
         self.__allStructs = []
+        self.__structCodesByType = dict()
         self.__f = infile
         
     def getNames(self):
@@ -46,6 +50,9 @@ class BlenderDNA:
     
     def getStructs(self):
         return self.__allStructs
+    
+    def getStructCodesByType(self):
+        return self.__structCodesByType
         
     def processDNA(self):
         # first 4 bytes must be string "SDNA"
@@ -155,6 +162,7 @@ class BlenderDNA:
         # read the number of structure definitions
         numStructs = getInt(f.read(4))
         theStructs = []
+        typeNames = self.getTypes()
         for structIdx in range(0, numStructs):
             curStruct = []
             structType = getInt(f.read(2))
@@ -168,6 +176,7 @@ class BlenderDNA:
             curStruct.append(curMembers)
             if len(curStruct) > 0:
                 theStructs.append(curStruct)
+                self.__structCodesByType[typeNames[structType]] = structIdx
         
         if len(theStructs) > 0:
             return theStructs

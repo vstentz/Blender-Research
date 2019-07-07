@@ -4,12 +4,19 @@
     Module definining some binary file convenience methods
 """
 import sys
+from struct import unpack
 
 def getInt(bytes):
    """
    Converts an array of bytes to a signed integer
    """
    return int.from_bytes(bytes, byteorder=sys.byteorder, signed=True)
+
+def getUint(bytes):
+   """
+   Converts an array of bytes to an unsigned integer
+   """
+   return int.from_bytes(bytes, byteorder=sys.byteorder, signed=False)
  
 def getString(f):
    """
@@ -21,6 +28,20 @@ def getString(f):
        straccum += achar
        achar = f.read(1).decode()
    return straccum
+
+def getFloat(bytes):
+   """
+   Converts 4 bytes to a float
+   """
+   dafloat = unpack('f', bytes)
+   return dafloat[0]
+
+def getDouble(bytes):
+   """
+   Converts 8 bytes to a double
+   """
+   dadouble = unpack('d', bytes)
+   return dadouble[0]
 
 def check4(f, theString):
    """
