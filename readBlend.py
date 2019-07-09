@@ -5,7 +5,7 @@ Program to interpret a .blend file
 """
 
 import sys
-from BinFileUtils import getInt, getUint, getFloat, getDouble
+from BinFileUtils import getInt, getUint, getFloat, getDouble, getString
 from readDNA import BlenderDNA
 from blockCodes import FileBlockCodes
 from PIL import Image
@@ -24,11 +24,9 @@ def main(bfile = 'startup.blend'):
         # for idx in range(0, len(structs)):
         #     print(f'Struct number {idx}')
         #     d.dumpStruct(names, types, structs[idx])
-        # bhs = bf.getBlockHeaders()
-        # print(bf.getFileHeader())
-        # print(f'Found {len(bhs)} header blocks (not including end block)')
-        # for h in bhs:
-        #     bf.dumpBlockHeader(h)
+        bhs = bf.getBlockHeaders()
+        print(bf.getFileHeader())
+        print(f'Found {len(bhs)} header blocks (not including end block)')
         timg = bf.getThumbnail()
         if timg:
             (bname, fext) = splitext(basename(bfile))
@@ -39,6 +37,15 @@ def main(bfile = 'startup.blend'):
         print("Render data:")
         for rd in rds:
             print(f'\tstart frame {rd.startFrame} end frame {rd.endFrame} scene "{rd.sceneName}"')
+            for h in bhs:
+                bf.dumpBlockHeader(h)
+
+class Pointer(int):
+    # convenience class to format a pointer for printing
+    def __str__(self):
+        return f'0x{self:016x}'
+    def __repr__(self):
+        return f'0x{self:016x}'
 
 class RenderData:
     """
@@ -58,19 +65,24 @@ class StructMember:
         dimensions: a tuple of array dimensions, e.g. (2,4,2) for the
             drw_corners example above. Could be empty.
         isSimpleType: True if type is not a structure, e.g. "char" or "int"
-        data: either a single integer, floating point or string value, a
+        isPointer: True if the member is a pointer
+        value: either a single integer, floating point or string value, a
             Struct, or a list. Interpretation depends on type and dimensions.
     """
-    def __init__(self, type, name, dimensions, isSimpleType, value):
+    def __init__(self, type, name, dimensions, isSimpleType, isPointer, value):
         self.type = type
         self.name = name
         self.dimensions = dimensions
         self.isSimpleType = isSimpleType
+        self.isPointer = isPointer
         self.value = value
 
 class Struct:
     """
-    Contents of a structure found in a .blend file
+    Contents of a structure found in a .blend file.
+    The public members of aStruct are:
+    name - the C name of the struct type
+    members - a list of StructMember objects.
     """
     basicTypes = frozenset([ # simple types found in Blender files
             'char',
@@ -92,38 +104,33 @@ class Struct:
     # pat2 parses a function pointer, e.g. "(*func)()"
     pat2 = re.compile(r"(?P<fptr>\(\*\w+\))\(\)")
 
-    def __init__(self, scode, f, bf):
-        # scode - structure code
-        # f - File object pointing to block's raw data
-        # bf - BlenderFile obect
-        self.__load(scode, f, bf)
-
-    def __getSingleValue(self, scode, type, isSimpleType, dimensions, pointer, bf, f):
+    def __getSingleValue(self, type, name, isSimpleType, dimensions, isPointer, bf, f):
         """
         Creates a simple value from raw data
         """
-        if not isSimpleType:
-            return Struct(scode, f, bf) # value is another struct
-
-        if pointer:
+        if isPointer:
             # make a pointer
             hdr = bf.getFileHeader()
             psize = hdr['pointerSize']
-            return getUint(f.read(psize))
+            return Pointer(getUint(f.read(psize)))
+        if not isSimpleType:
+            return Struct(f, bf, type, name) # value is another struct
         if type == 'char':
-            if len(dimensions) == 0:
-                numBytes = 1
+            numDim = len(dimensions)
+            if numDim == 0:
+                return getInt(f.read(1))
             else:
-                numBytes = dimensions[0]
-            raw = f.read(numBytes)
-            if numBytes == 1:
-                return getInt(raw)
-            else:
-                sr = raw.rstrip(b'0')
-                for b in sr:
-                    if b < 32 or b > 127:
-                        return raw
-                return sr.decode()
+                maxlen = dimensions[0]
+                raw = f.read(maxlen)
+                rs = raw
+                nulidx = raw.find(b'\x00')
+                if nulidx >= 0:
+                    rs = raw[0:nulidx]
+                try:
+                    tstring = rs.decode()
+                except UnicodeDecodeError:
+                    return raw
+                return tstring
         elif type == 'uchar':
             return getUint(f.read(1))
         elif type == 'short':
@@ -145,7 +152,7 @@ class Struct:
         else:
             return None
 
-    def __getArrayValue(self, scode, type, isSimpleType, dimensions, pointer, bf, f):
+    def __getArrayValue(self, type, name, isSimpleType, dimensions, isPointer, bf, f):
         """
         Creates a (possibly nested) list of single values
         """
@@ -153,29 +160,33 @@ class Struct:
         for idx in range(0, dimensions[0]):
             if len(dimensions) == 1:
                 # get single values
-                value = self.__getSingleValue(scode, type, isSimpleType, dimensions, pointer, bf, f)
+                value = self.__getSingleValue(type, name, isSimpleType, dimensions, isPointer, bf, f)
             else:
-                value = self.__getArrayValue(scode, type, isSimpleType, dimensions[1:], pointer, bf, f)
+                value = self.__getArrayValue(type, name, isSimpleType, dimensions[1:], isPointer, bf, f)
             vlist.append(value)
         return vlist
 
-    def __load(self, scode, f, bf):
+    def __init__(self, f, bf, type, name = ''):
+        # f - File object pointing to block's raw data
+        # bf - BlenderFile obect
+        # type - struct type string
+        # name - member name if inside another struct (top-level structs don't have one)
         dna = bf.getDNA()
         names = dna.getNames() # get the SDNA info
         types = dna.getTypes()
         sstructs = dna.getStructs()
         structCodesByType = dna.getStructCodesByType()
-        daStruct = sstructs[scode]
-        self.name = types[daStruct[0]] # really the C name of the struct
+        daStruct = sstructs[structCodesByType[type]]
+        self.type = type # really the C name of the struct
+        self.name = name
         memCodes = daStruct[1] # list of structure member type/name codes
         members = [] # list of StructMember
         self.members = members
         for t_n in memCodes:
             type = types[t_n[0]]
             isSimpleType = (type in self.basicTypes)
-            memberStructCode = 0
             name = names[t_n[1]]
-            # parse the member name and type
+           # parse the member name and type
             damatch = self.pat.match(name)
             dimensions = []
             pointer = ''
@@ -183,10 +194,7 @@ class Struct:
             if damatch:
                 # check for a pointer
                 pointer = damatch.group('ptr')
-                if pointer: isSimpleType = True # any pointer is a simple type
-                if not isSimpleType:
-                    memberStructCode = structCodesByType[type]
-
+                isPointer = True if pointer else False
 
                 # see if we have an array, possibly multi-dimensional
                 cdim = damatch.group('cdim')
@@ -198,22 +206,19 @@ class Struct:
 
                 if len(dimensions) == 0 or (len(dimensions) == 1 and type == 'char'):
                     # we have a single value
-                    value = self.__getSingleValue(memberStructCode, type, isSimpleType, dimensions, pointer, bf, f)
+                    value = self.__getSingleValue(type, name, isSimpleType, dimensions, isPointer, bf, f)
                 else:
                     # we have an array:
-                    value = self.__getArrayValue(memberStructCode, type, isSimpleType, dimensions, pointer, bf, f)
-                members.append(StructMember(type, name, dimensions, isSimpleType, value))
+                    value = self.__getArrayValue(type, name, isSimpleType, dimensions, isPointer, bf, f)
+                members.append(StructMember(type, name, dimensions, isSimpleType, isPointer, value))
             else:
                 damatch2 = self.pat2.match(name)
                 if damatch2:
                     # we have a pointer to a function - its value is a 4 or 8-byte integer
-                    value = self.__getSingleValue(memberStructCode, type, True, dimensions, pointer, bf, f)
-                    members.append(StructMember(type, name, dimensions, True, value))
+                    value = self.__getSingleValue(type, name, isSimpleType, dimensions, True, bf, f)
+                    members.append(StructMember(type, name, dimensions, isSimpleType, True, value))
                 else:
                     print(f'WARNING: "{name} {type}" was not parsed')
-                
-            
-
                
 class BlenderFile:
     def __init__(self, infile):
@@ -310,6 +315,7 @@ class BlenderFile:
                             structure DNA. The data in the block conforms to this structure.
             numberOfStructs the data consists of this number of consecutive structs
             filePos         file offset to block's data
+            structData      list of Struct objects that comprise the block's data
         """
         pointerSize = self.__fileHeader['pointerSize']
         # first 4 bytes are a block type code
@@ -399,9 +405,13 @@ class BlenderFile:
                 if scode == 0 or not dna:
                     continue # can't process
                 else:
+                    types = dna.getTypes()
+                    structs = dna.getStructs()
+                    dastruct = structs[scode]
+                    type = types[dastruct[0]]
                     slist = []
                     for idx in range(0, block['numberOfStructs']):
-                        slist.append(Struct(scode, f, self))
+                        slist.append(Struct(f, self, type))
                     block['structData'] = slist
                     block['processed'] = True
     
@@ -410,10 +420,30 @@ class BlenderFile:
             fbcs = FileBlockCodes.fileBlockCodes
             print(f'code = {code} {fbcs[code]}')
             print(f'length = {data["blockLength"]}')
-            print(f'old pointer = {data["oldPointer"]:016x}')
+            print(f'old pointer = 0x{data["oldPointer"]:016x}')
             print(f'struct code = {data["structCode"]}')
             print(f'number of structs = {data["numberOfStructs"]}')
+            if 'structData' in data:
+                self.dumpBlockData(data['structData'])
             print()
+    
+    def dumpBlockData(self, structList, tabLevel = ''):
+        # StructMember(type, name, dimensions, isSimpleType, isPointer, value)
+        for s in structList:
+            if isinstance(s, list):
+                self.dumpBlockData(s, tabLevel)
+                continue
+            spec = s.type
+            if s.name:
+                spec = spec + ' ' + s.name
+            print(tabLevel + f'Struct {spec} ' + '{')
+            for m in s.members:
+                if m.isPointer or m.isSimpleType:
+                    print(tabLevel + '\t' + m.type, m.name, '=', m.value)
+                else:
+                    self.dumpBlockData([m.value], tabLevel + '\t')
+            print(tabLevel + '}')
+        print()
 
 if __name__ == '__main__':
     if len(sys.argv) >= 2:
