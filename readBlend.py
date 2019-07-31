@@ -505,13 +505,22 @@ class BlenderFile:
                 hdr['memberSpecs'] = [('PaintToolSlot','*tool_slots[' + str(numptr) + ']')]
             elif 'Object|Material **mat' in refs:
                 if blockLength == pts:
-                    hdr['memberSpecs'] = [('Material','**mat')]
+                    hdr['memberSpecs'] = [('Material','*mat')]
+                else:
+                    numptr = blockLength//pts
+                    hdr['memberSpecs'] = [('Material','*mat[' + str(numptr) + ']')]
             elif 'Mesh|Material **mat' in refs:
                 if blockLength == pts:
-                    hdr['memberSpecs'] = [('Material','**mat')]
+                    hdr['memberSpecs'] = [('Material','*mat')]
+                else:
+                    numptr = blockLength//pts
+                    hdr['memberSpecs'] = [('Material','*mat[' + str(numptr) + ']')]
             elif 'Object|char *matbits' in refs:
                 # this is a boolean byte field
                 hdr['memberSpecs'] = [('uchar','matbits[' + str(blockLength) + ']')]
+            elif 'Mesh|MSelect *mselect' in refs:
+                scByType = self.getDNA().getStructCodesByType()
+                hdr['structCode'] = scByType['MSelect']
             elif 'ConsoleLine|char *line' in refs:
                 hdr['memberSpecs'] = [('char',f'line[{blockLength}]')]
             elif 'CustomDataLayer|void *data' in refs:
