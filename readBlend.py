@@ -472,7 +472,8 @@ class BlenderFile:
                 # Data starts with two integers, the width and height of the image
                 width = getInt(f.read(4))
                 height = getInt(f.read(4))
-                self.__thumbnailImage = Image.frombytes('RGBA',(width, height),f.read(dataLength - 8))
+                daimg = Image.frombytes('RGBA',(width, height),f.read(dataLength - 8))
+                self.__thumbnailImage = daimg.transpose(method=Image.FLIP_TOP_BOTTOM)
                 block['processed'] = True
             else:
                 scode = block['structCode']
