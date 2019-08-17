@@ -524,6 +524,11 @@ class BlenderFile:
                 hdr['structCode'] = scByType['MSelect']
             elif 'ConsoleLine|char *line' in refs:
                 hdr['memberSpecs'] = [('char',f'line[{blockLength}]')]
+            elif 'FCurve|char *rna_path' in refs:
+                hdr['memberSpecs'] = [('char',f'rna_path[{blockLength}]')]
+            elif 'FMod_Generator|float *coefficients' in refs:
+                numfloats = blockLength//4
+                hdr['memberSpecs'] = [('float','coefficients[' + str(numfloats) + ']')]
             elif 'CustomDataLayer|void *data' in refs:
                 # get the type field from the CustomDataLayer parent struct
                 smembers = hdr['references']['referringMembers']
